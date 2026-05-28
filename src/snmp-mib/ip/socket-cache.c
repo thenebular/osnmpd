@@ -97,7 +97,7 @@ enum {
     LIN_TCP_MAX_STATES
 };
 
-static const enum TCPState const tcp_state_mapping[] = {
+static const enum TCPState tcp_state_mapping[] = {
     [LIN_TCP_ESTABLISHED] = TCP_STATE_ESTABLISHED,
     [LIN_TCP_SYN_SENT] = TCP_STATE_SYN_SENT,
     [LIN_TCP_NEW_SYN_RECV] = TCP_STATE_SYN_RECEIVED,

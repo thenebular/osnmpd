@@ -49,7 +49,8 @@ static ENGINE *smartcard_engine = NULL;
 
 int init_crypto(void)
 {
-    OPENSSL_config(NULL);
+// Removed to update to OpenSSL 3.0
+//    OPENSSL_config(NULL);
     OpenSSL_add_all_algorithms();
     ERR_load_crypto_strings();
 
@@ -102,20 +103,41 @@ static int generate_tag(uint8_t *pdu, size_t pdu_len,
     memset(auth_tag, 0, USM_HMAC_TRUNC_LEN);
 
     int res = -1;
-    HMAC_CTX ctx;
-    HMAC_CTX_init(&ctx);
-    if (!HMAC_Init_ex(&ctx, context->auth_key,
+
+/* Removed to update to OpenSSL 3.0
+*    HMAC_CTX ctx;
+*    HMAC_CTX_init(&ctx);
+*    if (!HMAC_Init_ex(&ctx, context->auth_key,
+*        context->auth_key_len, USM_HMAC_ALGO(), NULL))
+*        goto err;
+*    if (!HMAC_Update(&ctx, pdu, pdu_len))
+*        goto err;
+*    uint8_t tag_buf[EVP_MAX_MD_SIZE];
+*    if (!HMAC_Final(&ctx, tag_buf, NULL))
+*        goto err;
+*    memcpy(auth_tag, tag_buf, USM_HMAC_TRUNC_LEN);
+*    res = 0;
+* err:
+*    HMAC_CTX_cleanup(&ctx);
+*/
+
+// New OpenSSL 3.0 compliant code to replace previous removed section 
+    HMAC_CTX *ctx = HMAC_CTX_new();
+    if (ctx == NULL)
+        goto err;
+    if (!HMAC_Init_ex(ctx, context->auth_key,
         context->auth_key_len, USM_HMAC_ALGO(), NULL))
         goto err;
-    if (!HMAC_Update(&ctx, pdu, pdu_len))
+    if (!HMAC_Update(ctx, pdu, pdu_len))
         goto err;
     uint8_t tag_buf[EVP_MAX_MD_SIZE];
-    if (!HMAC_Final(&ctx, tag_buf, NULL))
+    if (!HMAC_Final(ctx, tag_buf, NULL))
         goto err;
     memcpy(auth_tag, tag_buf, USM_HMAC_TRUNC_LEN);
     res = 0;
 err:
-    HMAC_CTX_cleanup(&ctx);
+    HMAC_CTX_free(ctx);
+
     return res;
 }
 

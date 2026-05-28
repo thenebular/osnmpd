@@ -567,7 +567,7 @@ static int send_pdu(uint8_t *pdu, size_t pdu_len)
         hints.ai_family = AF_UNSPEC;
         hints.ai_socktype = SOCK_DGRAM;
 
-        char port[5];
+        char port[6];
         sprintf(port, "%"PRIu16, config->port);
         int yes = 1;
         struct timeval timeout;

@@ -34,6 +34,10 @@
 #include <sys/types.h>
 #include <sys/sysinfo.h>
 #include <sys/stat.h>
+
+//Added for OpenSSL 3.0 compliance
+#include <sys/sysmacros.h>
+
 #include <linux/if_arp.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>

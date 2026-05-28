@@ -28,12 +28,12 @@ m4_define([osnmpd_version], [osnmpd_major_version.osnmpd_minor_version.osnmpd_mi
 AC_SUBST(VERSION)
 AC_REVISION([m4_esyscmd_s([git describe --long --always])])
 
-AC_INIT(osnmpd, [osnmpd_version])
+AC_INIT([osnmpd],[osnmpd_version])
 AC_CONFIG_SRCDIR([src/snmp-agent/snmpd.c])
 AC_LANG([C])
 
 AC_CONFIG_MACRO_DIR([m4/config])
-AC_CONFIG_HEADER([src/config.h])
+AC_CONFIG_HEADERS([src/config.h])
 AC_CANONICAL_HOST
 
 GIT_TAG=$(git rev-parse HEAD 2> /dev/null || echo out-of-tree)
@@ -43,7 +43,7 @@ AC_DEFINE_UNQUOTED([GIT_DATE], ["$GIT_DATE"], [git commit date])
 
 m4_pattern_allow([AM_PROG_AR])
 if test -z "$CFLAGS"; then
-	CFLAGS="-std=gnu11 -g -Os -Wall -Wunreachable-code -Wpointer-arith -Werror"
+	CFLAGS="-std=gnu11 -g -Os -Wall -Wunreachable-code -Wpointer-arith -Wno-deprecated-declarations"
 fi
 AM_PROG_AR
 AC_PROG_CC
@@ -141,29 +141,6 @@ enable_mib_agent="no"
 fi
 AC_MSG_RESULT(${enable_mib_agent})
 AM_CONDITIONAL([ENABLE_MIB_AGENT], [test "${enable_mib_agent}" = "yes"])
-
-if test "${enable_mib_agent}" = "yes"; then
-	if ! which openssl > /dev/null; then
-	    AC_MSG_ERROR([Missing OpenSSL binary.])
-	fi
-
-	if test -f ./dh.param; then
-		echo "Using existing Diffie-Hellman parameters"
-	else
-		echo "Generating new Diffie-Hellman parameters"
-		openssl dhparam -2 -out ./dh.param 2048
-		if test "$?" -ne "0"; then
-			AC_MSG_ERROR([Failed to generate new Diffie-Hellman parameters])
-		fi
-	fi
-	
-	prime_csv=$(openssl dhparam -in ./dh.param -C | tr -d ' \t\n' | sed -rn 's#^.+staticunsignedchardh(p_2048|2048_p)\[\]=\{([^\}]+)\};.+#\2#p')
-	if [test `echo ${prime_csv} | wc -c` -ne 1281] && [test `echo ${prime_csv} | wc -c` -ne 1280]; then
-		AC_MSG_ERROR([Failed to parse Diffie-Hellman parameters])
-	fi
-	AC_DEFINE([USM_DH_PARAM_GENERATOR], [2], [generator for Diffie-Hellman cyclic group])
-	AC_DEFINE_UNQUOTED([USM_DH_PARAM_PRIME], [${prime_csv}], [prime of Diffie-Hellman cyclic group])	
-fi
 
 AC_MSG_CHECKING([whether the system MIB is to be compiled in])
 if test "${host_linux}" = "yes"; then
