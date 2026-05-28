@@ -1,4 +1,4 @@
-I have created this fork from the original osnmpd project (https://github.com/verrio/osnmpd). I have updated it to compile cleanly on current linux distros with OpenSSL 3.0 (specifically Debian 13). I made the update because I needed an SNMP agent that could take NUT status values and output them in upsmib format from RFC 1628.
+I have created this fork from the original osnmpd project (https://github.com/verrio/osnmpd). I have updated it to compile cleanly on current linux distros with OpenSSL 3.0 (specifically Debian 13). I made the update because I needed an SNMP agent that could take NUT status values and output them in ups-mib format from RFC 1628.
 
 osnmpd agent
 ============
