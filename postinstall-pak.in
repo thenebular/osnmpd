@@ -1,0 +1,31 @@
+#!/bin/sh
+set -e
+
+# 1. Create the system group if it does not exist
+if ! getent group snmp-grp >/dev/null; then
+    groupadd --system snmp-grp
+fi
+
+# 2. Create the system user if it does not exist
+if ! getent passwd snmp-usr >/dev/null; then
+    useradd --system -s /bin/false -g snmp-grp snmp-usr
+fi
+
+# 3. Create the cache directory and set correct permissions
+mkdir -p "@SNMP_CACHE@"
+chown -R snmp-usr:snmp-grp "@SNMP_CACHE@"
+chmod 750 "@SNMP_CACHE@"
+
+# 4. Create the runtime PID directory and set correct permissions
+mkdir -p "@SNMP_RUN@"
+chown -R snmp-usr:snmp-grp "@SNMP_RUN@"
+chmod 750 "@SNMP_RUN@"
+
+# 5. Reload systemd, enable, and start the service automatically
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload || true
+    systemctl enable snmpd.service || true
+    systemctl restart snmpd.service || true
+fi
+
+exit 0
