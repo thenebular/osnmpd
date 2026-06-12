@@ -118,7 +118,7 @@ AC_MSG_CHECKING(which enterprise number to use)
 AC_ARG_WITH(enterprise-number,
 	[AS_HELP_STRING([--with-enterprise-number], [alternative enterprise number])],
 	ENTERPRISE_NUMBER=$withval,
-	ENTERPRISE_NUMBER=4)
+	ENTERPRISE_NUMBER=1)
 AC_MSG_RESULT(${ENTERPRISE_NUMBER})
 AC_DEFINE_UNQUOTED(ENTERPRISE_NUMBER, ${ENTERPRISE_NUMBER}, [enterprise number])
 
@@ -126,7 +126,7 @@ AC_MSG_CHECKING(which enterprise OID to use)
 AC_ARG_WITH(enterprise-oid,
 	[  --with-enterprise-oid   Alternative enterprise OID],
 	ENTERPRISE_MIB=$withval,
-	ENTERPRISE_MIB="1.3.6.1.3.255")
+	ENTERPRISE_MIB="1.3.6.1.3.255.999")
 AC_MSG_RESULT(${ENTERPRISE_MIB})
 AC_DEFINE_UNQUOTED(ENTERPRISE_MIB, [`echo ${ENTERPRISE_MIB} | tr '.' ','`], [enterprise MIB subtree])
 
@@ -135,7 +135,7 @@ if test "${host_linux}" = "yes"; then
 AC_ARG_WITH(mib-agent,
 	[  --with-mib-agent        Include agent MIB module],
 	enable_mib_agent=$withval,
-	enable_mib_agent="yes")
+	enable_mib_agent="no")
 else
 enable_mib_agent="no"
 fi
@@ -159,7 +159,7 @@ if test "${host_linux}" = "yes"; then
 AC_ARG_WITH(mib-power,
 	[  --with-mib-power        Include power MIB module],
 	enable_mib_power=$withval,
-	enable_mib_power="yes")
+	enable_mib_power="no")
 else
 enable_mib_power="no"
 fi
@@ -171,7 +171,7 @@ if test "${host_linux}" = "yes"; then
 AC_ARG_WITH(mib-ip,
 	[  --with-mib-ip           Include IP MIB module],
 	enable_mib_ip=$withval,
-	enable_mib_ip="yes")
+	enable_mib_ip="no")
 else
 enable_mib_ip="no"
 fi
@@ -183,7 +183,7 @@ if test "${host_linux}" = "yes"; then
 AC_ARG_WITH(mib-sensors,
 	[  --with-mib-sensors      Include sensors MIB module],
 	enable_mib_sensors=$withval,
-	enable_mib_sensors="yes")
+	enable_mib_sensors="no")
 else
 enable_mib_sensors="no"
 fi
@@ -237,8 +237,18 @@ AC_SUBST(cachedir)
 AC_DEFINE_UNQUOTED([AGENT_CONF_OPTIONS], ["$ac_configure_args"],
 	[configure options specified])
 
+# Configure option for custom NUT state socket directory
+AC_ARG_WITH([nut-statepath],
+	[AS_HELP_STRING([--with-nut-statepath=DIR], [set NUT state socket directory (default: /var/run/nut)])],
+	[nut_statepath=$withval],
+	[nut_statepath="/var/run/nut"])
+
+# Define the path globally as a C macro
+AC_DEFINE_UNQUOTED([PATH_UPS_SOCK], ["$nut_statepath"], [NUT state socket directory])
+
 AC_CONFIG_FILES([
 	Makefile
+        postinstall-pak
 	conf/Makefile
 	doc/Makefile
 	src/Makefile
@@ -250,6 +260,8 @@ AC_CONFIG_FILES([
 	src/snmp-mib/ip/Makefile
 	src/snmp-mib/java-subagent/Makefile
 	src/tests/Makefile
+        ],
+        [chmod +x postinstall-pak
 ])
 AC_OUTPUT
 

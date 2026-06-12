@@ -64,13 +64,13 @@
 static int debug_logging = 0;
 
 /* PID file */
-static const char *pid_file = SNMPD_RUN_PATH "osnmpd.pid";
+static const char *pid_file = SNMPD_RUN_PATH "snmpd.pid";
 
 /* plugin directory */
 static const char *plugin_dir = PLUGIN_DIR;
 
 /* indicates if process is finished */
-static int finished = 0;
+static volatile int finished = 0;
 
 /* poll descriptors */
 static struct pollfd fds[3];

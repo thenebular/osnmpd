@@ -50,13 +50,13 @@ static SysOREntry vacm_or_entry = {
 
 /* entry indexes (vacmGroupName + vacmAccessContextPrefix +
  * vacmAccessSecurityModel + vacmAccessSecurityLevel) */
-static const SubOID access_group_ro[] =
+static SubOID access_group_ro[] =
     { 13, 114, 101, 97, 100, 79, 110, 108, 121, 71, 114, 111,
         117, 112, 0, 3, 3 };
-static const SubOID access_group_rw[] =
+static SubOID access_group_rw[] =
     { 14, 100, 105, 115, 99, 111, 118, 101, 114, 121, 71, 114,
         111, 117, 112, 0, 3, 1 };
-static const SubOID access_group_man[] =
+static SubOID access_group_man[] =
     { 15, 109, 97, 110, 97, 103, 101, 109, 101, 110, 116, 71, 114,
         111, 117, 112, 0, 3, 3 };
 static const SubOID *access_groups[] = {
@@ -171,6 +171,26 @@ MibModule *init_vacm_access_module(void)
         free(module);
         return NULL;
     }
+
+    /* Dynamically override the security levels using values from snmpd.conf */
+    UserConfiguration *config_ro = get_user_configuration(USER_READ_ONLY);
+    if (config_ro != NULL && config_ro->enabled) {
+        access_group_ro[sizeof(access_group_ro)/sizeof(SubOID) - 1] = config_ro->security_level;
+    }
+
+    UserConfiguration *config_pub = get_user_configuration(USER_PUBLIC);
+    if (config_pub != NULL && config_pub->enabled) {
+        access_group_rw[sizeof(access_group_rw)/sizeof(SubOID) - 1] = config_pub->security_level;
+    }
+
+    UserConfiguration *config_admin = get_user_configuration(USER_ADMIN);
+    if (config_admin == NULL || !config_admin->enabled) {
+        config_admin = get_user_configuration(USER_READ_WRITE);
+    }
+    if (config_admin != NULL && config_admin->enabled) {
+        access_group_man[sizeof(access_group_man)/sizeof(SubOID) - 1] = config_admin->security_level;
+    }
+
 
     SET_PREFIX(module, SNMP_OID_VACM, 1, VACM_ACCESS_TABLE, VACM_ACCESS_ENTRY);
     SET_OR_ENTRY(module, &vacm_or_entry);

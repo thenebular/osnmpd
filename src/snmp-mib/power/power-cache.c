@@ -37,6 +37,7 @@
 #include <fcntl.h>
 #include <errno.h>
 
+#include "config.h"
 #include "snmp-agent/agent-cache.h"
 #include "snmp-core/utils.h"
 #include "snmp-mib/mib-utils.h"
@@ -45,7 +46,8 @@
 #define UPDATE_INTERVAL 8
 #define SOCK_TIMEOUT 4
 
-#define PATH_UPS_SOCK "/var/lib/nut"
+//PATH_UPS_SOCK definition moved to autoconf script to allow for custom paths to be used
+//#define PATH_UPS_SOCK "/var/lib/nut"
 #define PATH_BATTERY "/sys/class/power_supply/"
 #define PATH_BATTERY_TECHNOLOGY "technology"
 #define PATH_BATTERY_TYPE "type"
@@ -302,15 +304,16 @@ static int parse_ups_buf(char *buf, UPSEntry *ups)
 
                     char *tok = strtok_r(status, " ", &ptr);
                     while (tok != NULL) {
-                        if (strncmp(tok, "OB", 2)) {
+                        if (strncmp(tok, "OB", 2) == 0) {
                             ups->output_source = UPS_OUTPUT_SOURCE_BATTERY;
-                        } else if (strncmp(tok, "OL", 2)) {
+                        } else if (strncmp(tok, "OL", 2) == 0) {
                             ups->output_source = UPS_OUTPUT_SOURCE_NORMAL;
-                        } else if (strncmp(tok, "LB", 2)) {
-                            ups->status = UPS_STATUS_BATTERY_LOW;
-                        } else if (strncmp(tok, "RB", 2) || strncmp(tok, "CHRG", 2)) {
                             ups->status = UPS_STATUS_BATTERY_NORMAL;
-                        } else if (strncmp(tok, "DISCHRG", 2)) {
+                        } else if (strncmp(tok, "LB", 2) == 0) {
+                            ups->status = UPS_STATUS_BATTERY_LOW;
+                        } else if (strncmp(tok, "RB", 2) == 0 || strncmp(tok, "CHRG", 2) == 0) {
+                            ups->status = UPS_STATUS_BATTERY_NORMAL;
+                        } else if (strncmp(tok, "DISCHRG", 2) == 0) {
                             ups->output_source = UPS_OUTPUT_SOURCE_BATTERY;
                         }
                         tok = strtok_r(NULL, "\n", &ptr);

@@ -5,9 +5,10 @@
 agent:
 {
   uid = "snmp-usr";
-  gid = "snmp-grp";
+# gid = "snmp-grp";
+  gid = "nut"
   port = 161;
-  interfaces = [ "eth0", "eth1", "ppp0" ];
+  interfaces = [ "lo", "enp1s0" ];
   cache-dir = "@SNMP_CACHE@";
   
   trap:
@@ -35,8 +36,8 @@ agent:
       name = "read-only";
       security-model = "USM";
       security-level = "authPriv";
-      auth-password = "hunter2";
-      priv-password = "hunter2";
+      auth-password = "hunter22";
+      priv-password = "hunter22";
     },
     {
       slot = "READ_WRITE";
