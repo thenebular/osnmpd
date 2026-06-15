@@ -21,12 +21,12 @@
  * SOFTWARE.
  */
 
-#include <sys/un.h>
+#include <sys/un.h>        /* For UNIX domain sockets (AF_UNIX) used by NUT */
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <inttypes.h>
-#include <stddef.h>
+#include <stddef.h>        /* For offsetof() macro used in data mapping */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,11 +43,15 @@
 #include "snmp-mib/mib-utils.h"
 #include "snmp-mib/power/power-cache.h"
 
+/* How often (in seconds) to query the NUT server before serving from cache */
 #define UPDATE_INTERVAL 8
+/* Timeout (in seconds) for reading from/writing to the NUT socket */
 #define SOCK_TIMEOUT 4
 
-//PATH_UPS_SOCK definition moved to autoconf script to allow for custom paths to be used
-//#define PATH_UPS_SOCK "/var/lib/nut"
+/* PATH_UPS_SOCK is injected via configure.ac, defaulting to /var/run/nut. 
+ * This is where the local NUT daemon (upsd) places its UNIX socket. */
+
+/* Linux sysfs paths used for reading direct battery hardware data (laptops/devices) */
 #define PATH_BATTERY "/sys/class/power_supply/"
 #define PATH_BATTERY_TECHNOLOGY "technology"
 #define PATH_BATTERY_TYPE "type"
@@ -65,11 +69,14 @@
 #define PATH_BATTERY_STATUS "status"
 #define PATH_BATTERY_TEMPERATURE "temp"
 
+/* Internal forward declarations for UPS (NUT) parsing functions */
 static int get_ups_sock(void);
 static int parse_ups_buf(char *, UPSEntry *);
 static void *fetch_ups_info(void);
 static void scan_ups_string(char *, size_t, const char *);
 static void scan_ups_decimal(uint32_t *, int, const char *);
+
+/* Internal forward declarations for Sysfs Battery parsing functions */
 static void *fetch_battery_list(void);
 static void free_battery_list(void *);
 static enum BatteryTechnology get_battery_technology(char *);
@@ -78,25 +85,40 @@ static enum BatteryOperState get_battery_oper_status(char *);
 static size_t fill_buffer(char *, char *, char *, size_t);
 static int read_unsigned_number(char *, char *, uint32_t *);
 
+/* 
+ * NUT Protocol commands. 
+ * We send DUMPALL to get the state of all variables at once.
+ * The server responds with multiple SETINFO lines, followed by DUMPDONE.
+ */
 static const char *ups_cmd_get = "DUMPALL\n";
 static const char *ups_cmd_info = "SETINFO";
 static const char *ups_cmd_done = "DUMPDONE";
 
+/* Defines how to parse a specific value returned by NUT */
 enum UPSInfoType {
-    UPS_INFO_STRING,
-    UPS_INFO_DECIMAL,
-    UPS_INFO_BOOL,
-    UPS_INFO_STATUS,
-    UPS_INFO_TEST_STATUS
+    UPS_INFO_STRING,        /* Raw text strings (e.g. "APC") */
+    UPS_INFO_DECIMAL,       /* Numeric values, potentially scaled */
+    UPS_INFO_BOOL,          /* Boolean values (e.g., "yes"/"no") */
+    UPS_INFO_STATUS,        /* UPS Status codes (e.g., "OL", "OB") */
+    UPS_INFO_TEST_STATUS    /* Internal test status tracking */
 };
 
+/* 
+ * This struct maps a NUT variable name (e.g., "battery.charge") directly to a 
+ * memory offset inside the UPSEntry struct. This allows us to use a simple loop
+ * to populate the C struct instead of writing a massive if/else block.
+ */
 typedef struct {
-    char *key;
-    enum UPSInfoType type;
-    size_t offset;
-    int multiplier;
+    char *key;               /* The string returned by NUT (e.g., "battery.charge") */
+    enum UPSInfoType type;   /* How to parse the string value */
+    size_t offset;           /* Memory offset inside the UPSEntry struct */
+    int multiplier;          /* Multiplier to handle decimals (e.g., 12.3V * 10 = 123) */
 } UPSInfo;
 
+/* 
+ * The master mapping table. Maps NUT keys to UPSEntry struct fields. 
+ * Offsetof() calculates exactly where in the UPSEntry struct the variable lives.
+ */
 static const UPSInfo ups_info[] = {
     { "battery.charge", UPS_INFO_DECIMAL, offsetof(UPSEntry, charge_remaining), 1 },
     { "battery.current", UPS_INFO_DECIMAL, offsetof(UPSEntry, current), 10 },
@@ -155,25 +177,40 @@ static const UPSInfo ups_info[] = {
     { "ups.test.result", UPS_INFO_STRING, offsetof(UPSEntry, test_result), 1 }
 };
 
+/* 
+ * Public API: Retrieves cached Sysfs Battery List
+ * Wrapper over get_mib_cache to enforce caching interval.
+ */
 BatteryEntry *get_battery_list(void)
 {
     return get_mib_cache(fetch_battery_list, free_battery_list, UPDATE_INTERVAL);
 }
 
+/* 
+ * Public API: Retrieves cached UPS Information 
+ * Wrapper over get_mib_cache to enforce caching interval.
+ */
 UPSEntry *get_ups_info(void)
 {
     return get_mib_cache(fetch_ups_info, free, UPDATE_INTERVAL);
 }
 
+/* 
+ * Connects to the local NUT socket, queries the status of the UPS, 
+ * and parses the text response into a UPSEntry C structure.
+ */
 static void *fetch_ups_info(void)
 {
     UPSEntry *ups = NULL;
+    
+    /* 1. Connect to the socket */
     int sock = get_ups_sock();
     if (sock == -1) {
         syslog(LOG_DEBUG, "UPS socket unavailable");
         return NULL;
     }
 
+    /* 2. Write the DUMPALL command to the socket to get all variables */
     int offset = 0;
     while (strlen(ups_cmd_get) - offset > 0) {
         int written = write(sock, &ups_cmd_get[offset], strlen(ups_cmd_get) - offset);
@@ -183,6 +220,7 @@ static void *fetch_ups_info(void)
         offset += written;
     }
 
+    /* 3. Allocate and initialize the struct we are going to populate */
     ups = (UPSEntry *) malloc(sizeof(UPSEntry));
     if (ups == NULL) {
         close(sock);
@@ -192,9 +230,10 @@ static void *fetch_ups_info(void)
     ups->status = UPS_STATUS_UNKNOWN;
     ups->output_source = UPS_OUTPUT_SOURCE_NONE;
     ups->test_status = UPS_TEST_RESULTS_NO_TESTS_INITIATED;
-    ups->auto_restart = 2;
-    ups->config_beeper = 1;
+    ups->auto_restart = 2; /* SNMP TruthValue: 2 = False */
+    ups->config_beeper = 1; /* SNMP TruthValue: 1 = True */
 
+    /* 4. Read response lines from the socket until we hit DUMPDONE */
     FILE *f = fdopen(sock, "r");
     if (f == NULL)
         goto err;
@@ -202,11 +241,12 @@ static void *fetch_ups_info(void)
     char buf[1024];
     while (buf == fgets(buf, sizeof(buf), f)) {
         if (parse_ups_buf(buf, ups))
-            break;
+            break; /* Hit DUMPDONE or an error */
     }
 
     fclose(f);
     return ups;
+
 err:
     syslog(LOG_ERR, "failed to retrieve data from UPS daemon : %s", strerror(errno));
     close(sock);
@@ -214,6 +254,11 @@ err:
     return NULL;
 }
 
+/* 
+ * Scans the configured socket directory (usually /var/run/nut) for UNIX domain 
+ * sockets belonging to the NUT daemon. If found, opens a connection and sets 
+ * appropriate timeouts.
+ */
 static int get_ups_sock(void)
 {
     DIR *dir = opendir(PATH_UPS_SOCK);
@@ -223,27 +268,31 @@ static int get_ups_sock(void)
     struct sockaddr_un sa;
     memset(&sa, 0, sizeof(sa));
     sa.sun_family = AF_UNIX;
+    
+    /* Iterate through the directory looking for a valid socket file */
     struct dirent *entry;
     while ((entry = readdir(dir))) {
         snprintf(sa.sun_path, sizeof(sa.sun_path)-1, "%s/%s",
                 PATH_UPS_SOCK, entry->d_name);
         struct stat s;
         if (stat(sa.sun_path, &s) == 0 && S_ISSOCK(s.st_mode))
-            break;
+            break; /* Found it! */
         sa.sun_path[0] = '\0';
     }
     closedir(dir);
 
     if (sa.sun_path[0] == '\0')
-        return -1;
+        return -1; /* No socket found */
 
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0)
         return -1;
 
+    /* Connect to the located socket */
     if (connect(fd, (struct sockaddr *) &sa, sizeof(sa)) < 0)
         goto err;
 
+    /* Set Receive and Send Timeouts so a stalled daemon won't block the agent */
     struct timeval tv;
     tv.tv_sec = SOCK_TIMEOUT;
     tv.tv_usec = 0;
@@ -260,35 +309,51 @@ err:
     return -1;
 }
 
+/* 
+ * Parses a single line returned by the DUMPALL command.
+ * Line format: SETINFO <ups_name> <key> "<value>"
+ * Returns -1 if it hits DUMPDONE, indicating the end of the dump.
+ */
 static int parse_ups_buf(char *buf, UPSEntry *ups)
 {
+    /* Check for termination command */
     if (!strncmp(buf, ups_cmd_done, strlen(ups_cmd_done)))
         return -1;
+    
+    /* Ignore lines that don't start with SETINFO */
     if (strncmp(buf, ups_cmd_info, strlen(ups_cmd_info)))
         return 0;
 
+    /* Tokenize string to isolate the key and value */
     char *ptr;
+    /* Skip the command and the UPS name, grab the key (e.g. "battery.charge") */
     char *key = strtok_r(buf + sizeof(ups_cmd_info), " ", &ptr);
+    /* Grab the rest of the line as the value */
     char *val = strtok_r(NULL, "\n", &ptr);
     if (key == NULL || val == NULL)
         return 0;
 
+    /* Search the mapping table to figure out what to do with this key */
     for (int i = 0; i < sizeof(ups_info) / sizeof(UPSInfo); i++) {
         if (!strcmp(ups_info[i].key, key)) {
+            /* We found a match. Parse it according to its type. */
             switch (ups_info[i].type) {
                 case UPS_INFO_STRING: {
+                    /* Write the string directly to the target struct offset */
                     scan_ups_string((char *) ((char *) ups + ups_info[i].offset),
                         64, val);
                     break;
                 }
 
                 case UPS_INFO_DECIMAL: {
+                    /* Parse numeric value, multiplying it if needed (e.g. 10x for voltage) */
                     scan_ups_decimal((uint32_t *) ((char *) ups + ups_info[i].offset),
                         ups_info[i].multiplier, val);
                     break;
                 }
 
                 case UPS_INFO_BOOL: {
+                    /* Convert text "yes"/"no" into SNMP truth values (1=true, 2=false) */
                     char status[32];
                     status[0] = '\0';
                     scan_ups_string(status, sizeof(status), val);
@@ -298,22 +363,23 @@ static int parse_ups_buf(char *buf, UPSEntry *ups)
                 }
 
                 case UPS_INFO_STATUS: {
+                    /* Parse the NUT status abbreviations into UPS-MIB enums */
                     char status[32];
                     status[0] = '\0';
                     scan_ups_string(status, sizeof(status), val);
 
                     char *tok = strtok_r(status, " ", &ptr);
                     while (tok != NULL) {
-                        if (strncmp(tok, "OB", 2) == 0) {
+                        if (strncmp(tok, "OB", 2) == 0) { // On Battery
                             ups->output_source = UPS_OUTPUT_SOURCE_BATTERY;
-                        } else if (strncmp(tok, "OL", 2) == 0) {
+                        } else if (strncmp(tok, "OL", 2) == 0) { // On Line
                             ups->output_source = UPS_OUTPUT_SOURCE_NORMAL;
                             ups->status = UPS_STATUS_BATTERY_NORMAL;
-                        } else if (strncmp(tok, "LB", 2) == 0) {
+                        } else if (strncmp(tok, "LB", 2) == 0) { // Low Battery
                             ups->status = UPS_STATUS_BATTERY_LOW;
-                        } else if (strncmp(tok, "RB", 2) == 0 || strncmp(tok, "CHRG", 2) == 0) {
+                        } else if (strncmp(tok, "RB", 2) == 0 || strncmp(tok, "CHRG", 2) == 0) { // Replace Battery / Charging
                             ups->status = UPS_STATUS_BATTERY_NORMAL;
-                        } else if (strncmp(tok, "DISCHRG", 2) == 0) {
+                        } else if (strncmp(tok, "DISCHRG", 2) == 0) { // Discharging
                             ups->output_source = UPS_OUTPUT_SOURCE_BATTERY;
                         }
                         tok = strtok_r(NULL, "\n", &ptr);
@@ -322,21 +388,26 @@ static int parse_ups_buf(char *buf, UPSEntry *ups)
                 }
 
                 case UPS_INFO_TEST_STATUS: {
+                    /* Handle self-test status reports */
                     if (strcmp(ups_info[i].key, "test.battery.stop")) {
                         ups->test_status = UPS_TEST_RESULTS_ABORTED;
                     } else {
-                        ups->test_status = UPS_TEST_RESULTS_IN_PROGRESS;;
+                        ups->test_status = UPS_TEST_RESULTS_IN_PROGRESS;
                     }
                     break;
                 }
             }
-            break;
+            break; /* Done mapping this key */
         }
     }
 
     return 0;
 }
 
+/* 
+ * Utility to strip the quotation marks off string values returned by NUT
+ * Example: "\"APC\"" -> "APC"
+ */
 static void scan_ups_string(char *buf, size_t buf_len, const char *src)
 {
     const char *p = src;
@@ -344,6 +415,7 @@ static void scan_ups_string(char *buf, size_t buf_len, const char *src)
         return;
     size_t i = 0;
     while (i < buf_len && *(++p) != '\n' && *p != '\0') {
+        /* Ignore escaped quotes */
         if (*p == '\\' && *(p + 1) == '"') {
             continue;
         } else {
@@ -355,6 +427,11 @@ static void scan_ups_string(char *buf, size_t buf_len, const char *src)
     }
 }
 
+/* 
+ * Utility to parse floating point strings returned by NUT and convert 
+ * them to integers scaled by a multiplier. 
+ * Example: "\"12.3\"" with mult=10 -> 123
+ */
 static void scan_ups_decimal(uint32_t *buf, int mult, const char *src)
 {
     float f;
@@ -362,6 +439,15 @@ static void scan_ups_decimal(uint32_t *buf, int mult, const char *src)
         *buf = (uint32_t) (f * mult);
 }
 
+/* 
+ * -----------------------------------------------------------------------------
+ * Sysfs Battery Parsing (Laptop/Server Internal Batteries)
+ * -----------------------------------------------------------------------------
+ * The functions below do not use NUT, but rather scan the Linux kernel's
+ * /sys/class/power_supply directory for direct hardware batteries.
+ */
+
+/* Scans /sys/class/power_supply and populates a linked list of batteries */
 static void *fetch_battery_list(void)
 {
     BatteryEntry *head = NULL;
@@ -374,6 +460,7 @@ static void *fetch_battery_list(void)
     int i = 0;
     struct dirent *d;
     while ((d = readdir(dir))) {
+        /* Usually named BAT0, BAT1, etc. Skip anything else. */
         if (strncmp(d->d_name, "BAT", 3))
             continue;
 
@@ -390,6 +477,7 @@ static void *fetch_battery_list(void)
             tail = entry;
         }
 
+        /* Read strings from files like manufacturer, model_name, etc. */
         size_t man_len = fill_buffer(PATH_BATTERY_MANUFACTURER, d->d_name,
             entry->identifier, sizeof(entry->identifier));
         if (man_len > 0 && man_len < sizeof(entry->identifier))
@@ -402,6 +490,7 @@ static void *fetch_battery_list(void)
         trim_string(entry->cell_identifier);
         entry->fw_version[0] = '\0';
 
+        /* Parse enums from strings */
         char buf[64];
         fill_buffer(PATH_BATTERY_TECHNOLOGY, d->d_name, buf, sizeof(buf));
         entry->technology = get_battery_technology(buf);
@@ -409,10 +498,12 @@ static void *fetch_battery_list(void)
         fill_buffer(PATH_BATTERY_TYPE, d->d_name, buf, sizeof(buf));
         entry->type = get_battery_type(buf);
 
+        /* Read hardware numbers from sysfs */
         if (read_unsigned_number(PATH_BATTERY_CYCLES, d->d_name,
                 &entry->charging_cycle_count))
             entry->charging_cycle_count = 0xffffffff;
 
+        /* Values in sysfs are given in microvolts/microamps. Divide by 1000 to get millivolts/milliamps */
         if (read_unsigned_number(PATH_BATTERY_VOLTAGE_NOW, d->d_name,
                 &entry->actual_voltage))
             entry->actual_voltage = 0xffffffff;
@@ -474,6 +565,7 @@ err:
     return head;
 }
 
+/* Frees the dynamically allocated list of sysfs batteries */
 static void free_battery_list(void *list)
 {
     BatteryEntry *e = list;
@@ -485,6 +577,7 @@ static void free_battery_list(void *list)
     }
 }
 
+/* Utility to read a sysfs file containing a string */
 static size_t fill_buffer(char *path_dir, char *battery_name,
         char *dst_buf, size_t len)
 {
@@ -502,6 +595,7 @@ static size_t fill_buffer(char *path_dir, char *battery_name,
     return dst_buf_len;
 }
 
+/* Utility to read a sysfs file containing an unsigned integer */
 static int read_unsigned_number(char *path_dir,
     char *battery_name, uint32_t *dst_buf)
 {
