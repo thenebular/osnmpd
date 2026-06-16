@@ -1,6 +1,8 @@
 /*
  * This file is part of the osnmpd project (https://github.com/verrio/osnmpd).
  * Copyright (C) 2016 Olivier Verriest
+ * This file was modified by thenebular for their fork of the osnmpd project (https://github.com/thenebular/osnmpd)
+ * Copyright (C) 2026 thenebular
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
